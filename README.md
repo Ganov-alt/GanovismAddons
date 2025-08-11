@@ -67,7 +67,7 @@ To update this template to a newer Minecraft version, follow these steps:
 │   ╰── main
 │       │── java
 │       │   ╰── com
-│       │       ╰── example
+│       │       ╰── ganovism
 │       │           ╰── addon
 │       │               │── commands
 │       │               │   ╰── CommandExample
@@ -75,12 +75,12 @@ To update this template to a newer Minecraft version, follow these steps:
 │       │               │   ╰── HudExample
 │       │               │── modules
 │       │               │   ╰── ModuleExample
-│       │               ╰── AddonTemplate
+│       │               ╰── GanovismAddon
 │       ╰── resources
 │           │── assets
-│           │   ╰── template
+│           │   ╰── ganovism-addon
 │           │       ╰── icon.png
-│           │── addon-template.mixins.json
+│           │── ganovism-addon.mixins.json
 │           ╰── fabric.mod.json
 │── .editorconfig
 │── .gitignore

@@ -3,7 +3,7 @@ plugins {
 }
 
 base {
-    archivesName = properties["archives_base_name"] as String
+    archivesName.set("Ganovism")
     version = properties["mod_version"] as String
     group = properties["maven_group"] as String
 }
@@ -64,4 +64,6 @@ tasks {
         options.compilerArgs.add("-Xlint:deprecation")
         options.compilerArgs.add("-Xlint:unchecked")
     }
+}
+tasks.jar {    archiveBaseName.set("Ganovism")
 }

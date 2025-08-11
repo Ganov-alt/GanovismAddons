@@ -2,10 +2,10 @@
   "schemaVersion": 1,
   "id": "addon-template",
   "version": "${version}",
-  "name": "Addon Template",
-  "description": "An addon template for Meteor Client addons.",
+  "name": "Ganovism",
+  "description": "A couple QOL improvements for Meteor Client made by Ganov with vibecodeing",
   "authors": [
-    "seasnail"
+    "Ganov + AI"
   ],
   "contact": {
     "sources": "https://github.com/MeteorDevelopment/meteor-addon-template"
@@ -14,7 +14,7 @@
   "environment": "client",
   "entrypoints": {
     "meteor": [
-      "com.example.addon.AddonTemplate"
+      "com.ganovism.addon.GanovismAddon"
     ]
   },
   "mixins": [
