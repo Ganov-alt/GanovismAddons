@@ -18,15 +18,10 @@ import net.minecraft.util.math.Vec3d;
 import java.util.HashSet;
 import java.util.Set;
 
-/**
- * Incremental scanner (default) that scans up to player's render distance in batches per frame.
- * Optional brute-force mode will scan the entire area immediately (very laggy) but is rate-limited by a cooldown.
- */
 public class AirPocketFinder extends Module {
     private final SettingGroup sgGeneral = settings.getDefaultGroup();
     private final SettingGroup sgRender = settings.createGroup("Render");
 
-    // Notifications
     private final Setting<Boolean> chatNotify = sgGeneral.add(new BoolSetting.Builder()
         .name("chat-notify")
         .description("Send a chat message when a pocket is found.")
@@ -41,7 +36,6 @@ public class AirPocketFinder extends Module {
         .build()
     );
 
-    // Performance / scanning
     private final Setting<Integer> batchSize = sgGeneral.add(new IntSetting.Builder()
         .name("scan-batch-size")
         .description("How many blocks to scan per render-frame tick in optimized mode. Lower -> less lag but slower scan.")
@@ -61,13 +55,12 @@ public class AirPocketFinder extends Module {
     private final Setting<Integer> bruteCooldownTicks = sgGeneral.add(new IntSetting.Builder()
         .name("brute-cooldown-ticks")
         .description("Minimum render frames between brute-force scans (prevents continuous catastrophic lag).")
-        .defaultValue(200) // ~10 seconds at 20 FPS (approx), tweak as needed
+        .defaultValue(200)
         .min(1)
         .max(2000)
         .build()
     );
 
-    // Rendering
     private final Setting<Boolean> tracers = sgRender.add(new BoolSetting.Builder()
         .name("tracers")
         .description("Draw tracers to detected pockets.")
@@ -77,17 +70,17 @@ public class AirPocketFinder extends Module {
 
     private final Setting<Double> tracerOffset = sgRender.add(new DoubleSetting.Builder()
         .name("tracer-offset")
-        .description("Forward offset from the camera to start tracers (prevents near-plane clipping).")
+        .description("Forward distance from the camera along the look vector to start tracers.")
         .defaultValue(0.25)
         .min(0.0)
-        .max(1.0)
+        .max(5.0)
         .build()
     );
 
     private final Setting<Double> tracerSmoothing = sgRender.add(new DoubleSetting.Builder()
         .name("tracer-smoothing")
         .description("0 = no smoothing (instant). A small value can soften abrupt camera jumps (optional).")
-        .defaultValue(0.0) // default 0 so tracer sticks exactly to crosshair/camera
+        .defaultValue(0.0)
         .min(0.0)
         .max(1.0)
         .visible(tracers::get)
@@ -109,20 +102,16 @@ public class AirPocketFinder extends Module {
         .build()
     );
 
-    // Internal caches/state
-    private final Set<BlockPos> foundPockets = new HashSet<>(); // pockets we've already reported
-    private final Set<BlockPos> scanned = new HashSet<>();      // positions scanned in current session
+    private final Set<BlockPos> foundPockets = new HashSet<>();
+    private final Set<BlockPos> scanned = new HashSet<>();
 
-    // incremental scanning bounds and current cursor
     private int minX, maxX, minZ, maxZ, minY, maxY;
     private int curX, curY, curZ;
     private boolean scanPrepared = false;
 
-    // brute-force cooldown / frame counter
     private long frameCounter = 0;
     private long lastBruteFrame = -Long.MAX_VALUE;
 
-    // last smoothed tracer start (used only if smoothing > 0)
     private Vec3d lastTracerStart = null;
 
     public AirPocketFinder() {
@@ -141,11 +130,10 @@ public class AirPocketFinder extends Module {
         minZ = p.getZ() - dist;
         maxZ = p.getZ() + dist;
 
-        // no Y threshold setting anymore — scan from world bottom up to player's Y
         try {
-            minY = mc.world.getBottomY(); // prefer world bottom if available
+            minY = mc.world.getBottomY();
         } catch (Throwable t) {
-            minY = -64; // fallback
+            minY = -64;
         }
         maxY = p.getY();
 
@@ -162,42 +150,32 @@ public class AirPocketFinder extends Module {
         if (mc.world == null || mc.player == null) return;
 
         frameCounter++;
-
-        // prepare or re-prepare bounds if needed
         if (!scanPrepared) prepareScanBounds();
 
         BlockPos p = mc.player.getBlockPos();
         int viewChunks = mc.options.getViewDistance().getValue();
         int dist = viewChunks * 16;
 
-        // rebuild scan bounds if player moved near the edge of current scan area (keeps scan centered)
         if (p.getX() < minX + 8 || p.getX() > maxX - 8 || p.getZ() < minZ + 8 || p.getZ() > maxZ - 8) {
             prepareScanBounds();
-            lastTracerStart = null; // reset any smoothing so we snap fresh to new camera center
+            lastTracerStart = null;
         }
 
-        // If brute-force mode enabled, respect cooldown and run a full scan when allowed.
         if (bruteForce.get()) {
             if (frameCounter - lastBruteFrame >= Math.max(1, bruteCooldownTicks.get())) {
                 lastBruteFrame = frameCounter;
-                runBruteForceScan(); // heavy; rate-limited by cooldown
+                runBruteForceScan();
             }
         } else {
-            // Optimized incremental scanning (batched)
             int processed = 0;
             final int toProcess = Math.max(1, batchSize.get());
 
             while (processed < toProcess) {
-                if (curY > maxY) {
-                    // finished the area for now — stop incremental scan
-                    break;
-                }
+                if (curY > maxY) break;
 
                 BlockPos pos = new BlockPos(curX, curY, curZ);
-
                 if (!scanned.contains(pos)) {
                     scanned.add(pos);
-
                     if (isAirPocket(pos)) {
                         if (foundPockets.add(pos)) {
                             if (chatNotify.get()) ChatUtils.info("AirPocketFinder", "Found 1x1 air pocket at " + pos.toShortString());
@@ -212,7 +190,6 @@ public class AirPocketFinder extends Module {
                     }
                 }
 
-                // advance coordinates
                 curX++;
                 if (curX > maxX) {
                     curX = minX;
@@ -222,97 +199,62 @@ public class AirPocketFinder extends Module {
                         curY++;
                     }
                 }
-
                 processed++;
             }
         }
 
-        // Render found pockets (only those roughly within render distance)
         for (BlockPos pos : foundPockets) {
             if (pos.getX() < p.getX() - dist || pos.getX() > p.getX() + dist || pos.getZ() < p.getZ() - dist || pos.getZ() > p.getZ() + dist) continue;
             if (esp.get()) event.renderer.box(pos, espColor.get(), espColor.get(), ShapeMode.Both, 0);
+
             if (tracers.get()) {
-                // --- Use camera entity (mc.cameraEntity) so tracer is anchored to crosshair and works in freecam ---
-                Vec3d camPos = getCameraPos(event.tickDelta);
-                Vec3d look = getCameraLookVec(event.tickDelta);
+                Vec3d desiredStart = getCrosshairRayPoint(event.tickDelta);
 
-                double offset = Math.max(0.0, Math.min(1.0, tracerOffset.get()));
-                Vec3d desiredStart = camPos.add(look.multiply(offset));
-
-                // optional smoothing (default 0 => instant; kept for edge cases)
-                double smooth = Math.max(0.0, Math.min(1.0, tracerSmoothing.get()));
+                double smooth = tracerSmoothing.get();
                 Vec3d start;
                 if (lastTracerStart == null || smooth <= 0.0) {
                     start = desiredStart;
                 } else {
-                    // if huge jump, snap
                     if (lastTracerStart.distanceTo(desiredStart) > 5.0) start = desiredStart;
                     else start = lastTracerStart.multiply(1.0 - smooth).add(desiredStart.multiply(smooth));
                 }
                 lastTracerStart = start;
 
                 Vec3d end = pos.toCenterPos();
-                event.renderer.line(start.x, start.y, start.z, end.x, end.y, end.z, espColor.get());
+                event.renderer.line(end.x, end.y, end.z, start.x, start.y, start.z, espColor.get());
             }
         }
+    }
+
+    private Vec3d getCrosshairRayPoint(float tickDelta) {
+        Vec3d camPos = getCameraPos(tickDelta);
+        Vec3d look = getCameraLookVec(tickDelta);
+        double offset = Math.max(0.01, tracerOffset.get());
+        return camPos.add(look.multiply(offset));
     }
 
     private Vec3d getCameraPos(float tickDelta) {
         try {
-            if (mc.cameraEntity != null) {
-                // most mappings expose getCameraPosVec on the camera entity
-                return mc.cameraEntity.getCameraPosVec(tickDelta);
-            }
+            if (mc.cameraEntity != null) return mc.cameraEntity.getCameraPosVec(tickDelta);
         } catch (Throwable ignored) {}
-        // fallback to player
-        try {
-            return mc.player.getCameraPosVec(tickDelta);
-        } catch (Throwable ignored) {
-            // last-resort: use player's raw position
-            return new Vec3d(mc.player.getX(), mc.player.getY(), mc.player.getZ());
-        }
+        return mc.player.getCameraPosVec(tickDelta);
     }
 
     private Vec3d getCameraLookVec(float tickDelta) {
         try {
-            if (mc.cameraEntity != null) {
-                return mc.cameraEntity.getRotationVec(tickDelta).normalize();
-            }
+            if (mc.cameraEntity != null) return mc.cameraEntity.getRotationVec(tickDelta).normalize();
         } catch (Throwable ignored) {}
-        // fallback to player
-        try {
-            return mc.player.getRotationVec(tickDelta).normalize();
-        } catch (Throwable ignored) {
-            // compute manually from yaw/pitch of player as ultimate fallback
-            double yaw = Math.toRadians(mc.player.getYaw());
-            double pitch = Math.toRadians(mc.player.getPitch());
-            double x = -Math.sin(yaw) * Math.cos(pitch);
-            double y = -Math.sin(pitch);
-            double z = Math.cos(yaw) * Math.cos(pitch);
-            return new Vec3d(x, y, z).normalize();
-        }
+        return mc.player.getRotationVec(tickDelta).normalize();
     }
 
-    /**
-     * Performs a full brute-force scan of the area (minX..maxX, minY..maxY, minZ..maxZ).
-     * This is extremely heavy and should only be used sparingly — it's rate-limited by bruteCooldownTicks.
-     */
     private void runBruteForceScan() {
         if (mc.world == null) return;
-
-        int viewChunks = mc.options.getViewDistance().getValue();
-        int dist = viewChunks * 16;
-        BlockPos p = mc.player.getBlockPos();
-
-        // bounds should already be prepared, but ensure they are valid
         if (!scanPrepared) prepareScanBounds();
 
-        // NOTE: This will iterate over (2*dist+1)^2 * (maxY-minY+1) blocks. ---------- VERY HEAVY ----------
         for (int x = minX; x <= maxX; x++) {
             for (int z = minZ; z <= maxZ; z++) {
                 for (int y = minY; y <= maxY; y++) {
                     BlockPos pos = new BlockPos(x, y, z);
-                    // avoid rechecking identical positions if they were scanned earlier
                     if (scanned.contains(pos)) continue;
                     scanned.add(pos);
 
@@ -333,9 +275,6 @@ public class AirPocketFinder extends Module {
         }
     }
 
-    /**
-     * Checks if the block at pos is AIR and all 6 neighbors are opaque (a 1x1 enclosed pocket).
-     */
     private boolean isAirPocket(BlockPos pos) {
         try {
             if (!mc.world.getBlockState(pos).isOf(Blocks.AIR)) return false;
@@ -344,7 +283,6 @@ public class AirPocketFinder extends Module {
             }
             return true;
         } catch (Exception e) {
-            // If anything goes wrong (unloaded chunk, NPE, etc.) treat as not a pocket
             return false;
         }
     }

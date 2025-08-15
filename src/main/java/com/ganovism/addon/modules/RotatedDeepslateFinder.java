@@ -11,12 +11,12 @@ import meteordevelopment.orbit.EventHandler;
 import net.minecraft.block.Block;
 import net.minecraft.block.Blocks;
 import net.minecraft.block.BlockState;
+import net.minecraft.client.toast.SystemToast;
 import net.minecraft.state.property.Properties;
 import net.minecraft.text.Text;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.Direction;
 import net.minecraft.util.math.Vec3d;
-import net.minecraft.client.toast.SystemToast;
 
 import java.util.HashSet;
 import java.util.Set;
@@ -24,7 +24,6 @@ import java.util.Set;
 public class RotatedDeepslateFinder extends Module {
     private final SettingGroup sgGeneral = settings.getDefaultGroup();
     private final SettingGroup sgRender = settings.createGroup("Render");
-    private final SettingGroup sgOptimizations = settings.createGroup("Optimizations");
 
     private final Setting<Boolean> chatNotify = sgGeneral.add(new BoolSetting.Builder()
         .name("chat-notify")
@@ -62,32 +61,6 @@ public class RotatedDeepslateFinder extends Module {
         .defaultValue(200)
         .min(1)
         .max(2000)
-        .build()
-    );
-
-    // Rescan delay default to 300 (5 minutes)
-    private final Setting<Integer> rescanDelaySeconds = sgGeneral.add(new IntSetting.Builder()
-        .name("rescan-delay")
-        .description("How often (in seconds) to rescan and clear previous results.")
-        .defaultValue(300) // 5 minutes
-        .min(1)
-        .max(3600)
-        .build()
-    );
-
-    // Optimization: stop scanning column after 20 air blocks (default OFF)
-    private final Setting<Boolean> stopAfter20AirBlocks = sgOptimizations.add(new BoolSetting.Builder()
-        .name("stop-after-20-air-blocks")
-        .description("Stop scanning a column upwards if 20 consecutive air blocks found without rotated deepslate.")
-        .defaultValue(false)
-        .build()
-    );
-
-    // Show old cache during rescan (default OFF)
-    private final Setting<Boolean> showOldCacheWhileRescanning = sgGeneral.add(new BoolSetting.Builder()
-        .name("show-old-cache-while-rescanning")
-        .description("Continue rendering previous found blocks while rescanning.")
-        .defaultValue(false)
         .build()
     );
 
@@ -132,6 +105,7 @@ public class RotatedDeepslateFinder extends Module {
         .build()
     );
 
+    // Internal state
     private final Set<BlockPos> foundBlocks = new HashSet<>();
     private final Set<BlockPos> scanned = new HashSet<>();
 
@@ -143,9 +117,6 @@ public class RotatedDeepslateFinder extends Module {
     private long lastBruteFrame = -Long.MAX_VALUE;
 
     private Vec3d lastTracerStart = null;
-
-    private int ticksSinceLastRescan = 0;
-    private boolean isRescanning = false;
 
     public RotatedDeepslateFinder() {
         super(GanovismAddon.CATEGORY, "rotated-deepslate-finder", "Detects rotated deepslate blocks underground.");
@@ -183,33 +154,15 @@ public class RotatedDeepslateFinder extends Module {
         if (mc.world == null || mc.player == null) return;
 
         frameCounter++;
-        ticksSinceLastRescan++;
 
         if (!scanPrepared) prepareScanBounds();
 
-        int rescanTicks = rescanDelaySeconds.get() * 20;
-        if (ticksSinceLastRescan >= rescanTicks) {
-            ticksSinceLastRescan = 0;
-            isRescanning = true;
-
-            if (!showOldCacheWhileRescanning.get()) {
-                foundBlocks.clear();
-            }
-
-            scanned.clear();
-            prepareScanBounds();
-
-            lastBruteFrame = frameCounter;
-
-            ChatUtils.info("RotatedDeepslateFinder", "Starting rescan for rotated deepslate...");
-        }
-
-        BlockPos playerPos = mc.player.getBlockPos();
+        BlockPos p = mc.player.getBlockPos();
         int viewChunks = mc.options.getViewDistance().getValue();
         int dist = viewChunks * 16;
 
         // Recenter scan if player moves near edges
-        if (playerPos.getX() < minX + 8 || playerPos.getX() > maxX - 8 || playerPos.getZ() < minZ + 8 || playerPos.getZ() > maxZ - 8) {
+        if (p.getX() < minX + 8 || p.getX() > maxX - 8 || p.getZ() < minZ + 8 || p.getZ() > maxZ - 8) {
             prepareScanBounds();
             lastTracerStart = null;
         }
@@ -218,14 +171,10 @@ public class RotatedDeepslateFinder extends Module {
             if (frameCounter - lastBruteFrame >= bruteCooldownTicks.get()) {
                 lastBruteFrame = frameCounter;
                 runBruteForceScan();
-                isRescanning = false;
             }
         } else {
             int processed = 0;
             int toProcess = Math.max(1, batchSize.get());
-
-            boolean skipColumn = false;
-            int airBlocksCount = 0;
 
             while (processed < toProcess) {
                 if (curY > maxY) break;
@@ -234,33 +183,6 @@ public class RotatedDeepslateFinder extends Module {
 
                 if (!scanned.contains(pos)) {
                     scanned.add(pos);
-
-                    // Optimization: if enabled, stop scanning up column after 20 air blocks
-                    if (stopAfter20AirBlocks.get()) {
-                        BlockState state = mc.world.getBlockState(pos);
-                        if (state.isAir()) {
-                            airBlocksCount++;
-                        } else {
-                            airBlocksCount = 0;
-                        }
-
-                        if (airBlocksCount >= 20) {
-                            // skip rest of this vertical column
-                            airBlocksCount = 0;
-
-                            curX++;
-                            if (curX > maxX) {
-                                curX = minX;
-                                curZ++;
-                                if (curZ > maxZ) {
-                                    curZ = minZ;
-                                    curY++;
-                                }
-                            }
-                            processed++;
-                            continue;
-                        }
-                    }
 
                     if (isRotatedDeepslate(pos)) {
                         if (foundBlocks.add(pos)) {
@@ -288,39 +210,33 @@ public class RotatedDeepslateFinder extends Module {
 
                 processed++;
             }
-
-            // If finished scanning all positions, reset rescan flag
-            if (curY > maxY) isRescanning = false;
         }
 
-        // Render ESP and tracers - render found blocks regardless if rescanning unless disabled
-        if (!isRescanning || showOldCacheWhileRescanning.get()) {
-            for (BlockPos pos : foundBlocks) {
-                if (pos.getX() < playerPos.getX() - dist || pos.getX() > playerPos.getX() + dist || pos.getZ() < playerPos.getZ() - dist || pos.getZ() > playerPos.getZ() + dist)
-                    continue;
+        // Render ESP and tracers
+        for (BlockPos pos : foundBlocks) {
+            if (pos.getX() < p.getX() - dist || pos.getX() > p.getX() + dist || pos.getZ() < p.getZ() - dist || pos.getZ() > p.getZ() + dist) continue;
 
-                if (esp.get()) event.renderer.box(pos, espColor.get(), espColor.get(), ShapeMode.Both, 0);
+            if (esp.get()) event.renderer.box(pos, espColor.get(), espColor.get(), ShapeMode.Both, 0);
 
-                if (tracers.get()) {
-                    Vec3d camPos = getCameraPos(event.tickDelta);
-                    Vec3d look = getCameraLookVec(event.tickDelta);
+            if (tracers.get()) {
+                Vec3d camPos = getCameraPos(event.tickDelta);
+                Vec3d look = getCameraLookVec(event.tickDelta);
 
-                    double offset = Math.max(0, Math.min(1, tracerOffset.get()));
-                    Vec3d desiredStart = camPos.add(look.multiply(offset));
+                double offset = Math.max(0, Math.min(1, tracerOffset.get()));
+                Vec3d desiredStart = camPos.add(look.multiply(offset));
 
-                    double smooth = Math.max(0, Math.min(1, tracerSmoothing.get()));
-                    Vec3d start;
-                    if (lastTracerStart == null || smooth <= 0) {
-                        start = desiredStart;
-                    } else {
-                        if (lastTracerStart.distanceTo(desiredStart) > 5) start = desiredStart;
-                        else start = lastTracerStart.multiply(1 - smooth).add(desiredStart.multiply(smooth));
-                    }
-                    lastTracerStart = start;
-
-                    Vec3d end = pos.toCenterPos();
-                    event.renderer.line(start.x, start.y, start.z, end.x, end.y, end.z, espColor.get());
+                double smooth = Math.max(0, Math.min(1, tracerSmoothing.get()));
+                Vec3d start;
+                if (lastTracerStart == null || smooth <= 0) {
+                    start = desiredStart;
+                } else {
+                    if (lastTracerStart.distanceTo(desiredStart) > 5) start = desiredStart;
+                    else start = lastTracerStart.multiply(1 - smooth).add(desiredStart.multiply(smooth));
                 }
+                lastTracerStart = start;
+
+                Vec3d end = pos.toCenterPos();
+                event.renderer.line(start.x, start.y, start.z, end.x, end.y, end.z, espColor.get());
             }
         }
     }
@@ -358,21 +274,10 @@ public class RotatedDeepslateFinder extends Module {
 
         for (int x = minX; x <= maxX; x++) {
             for (int z = minZ; z <= maxZ; z++) {
-                int airBlocksCount = 0;
                 for (int y = minY; y <= maxY; y++) {
                     BlockPos pos = new BlockPos(x, y, z);
                     if (scanned.contains(pos)) continue;
                     scanned.add(pos);
-
-                    if (stopAfter20AirBlocks.get()) {
-                        BlockState state = mc.world.getBlockState(pos);
-                        if (state.isAir()) {
-                            airBlocksCount++;
-                        } else {
-                            airBlocksCount = 0;
-                        }
-                        if (airBlocksCount >= 20) break; // stop scanning this column upward
-                    }
 
                     if (isRotatedDeepslate(pos)) {
                         if (foundBlocks.add(pos)) {
@@ -389,10 +294,11 @@ public class RotatedDeepslateFinder extends Module {
                 }
             }
         }
-
-        isRescanning = false;
     }
 
+    /**
+     * Returns true if block at pos is minecraft:deepslate and rotated (axis != Y).
+     */
     private boolean isRotatedDeepslate(BlockPos pos) {
         try {
             if (mc.world == null) return false;
@@ -422,7 +328,5 @@ public class RotatedDeepslateFinder extends Module {
         frameCounter = 0;
         lastBruteFrame = -Long.MAX_VALUE;
         lastTracerStart = null;
-        ticksSinceLastRescan = 0;
-        isRescanning = false;
     }
 }
