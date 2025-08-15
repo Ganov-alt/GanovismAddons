@@ -7,6 +7,7 @@ import com.ganovism.addon.modules.CrystalMacro;
 import com.ganovism.addon.modules.FastCrystal;
 import com.ganovism.addon.modules.LegitTotem;
 import com.ganovism.addon.modules.RotatedDeepslateFinder;
+import com.ganovism.addon.modules.BatteryESP;
 import com.mojang.logging.LogUtils;
 import meteordevelopment.meteorclient.addons.GithubRepo;
 import meteordevelopment.meteorclient.addons.MeteorAddon;
@@ -32,6 +33,7 @@ public class GanovismAddon extends MeteorAddon {
         Modules.get().add(new FastCrystal());
         Modules.get().add(new LegitTotem());
         Modules.get().add(new RotatedDeepslateFinder());
+        Modules.get().add(new BatteryESP());
         // Commands (if you have any commands, add them here)
         // Commands.add(new CommandExample());
 
