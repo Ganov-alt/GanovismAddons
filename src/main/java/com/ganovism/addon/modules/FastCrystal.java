@@ -58,7 +58,7 @@ public class FastCrystal extends Module {
     private final Random random = new Random();
 
     public FastCrystal() {
-        super(GanovismAddon.CATEGORY, "fast-crystal", "Individually clicks crystals at a set CPS while holding right click.");
+        super(GanovismAddon.CATEGORY, "fast-crystal", "Increases crystal placement speed when holding right-click.");
     }
 
     @Override
@@ -78,7 +78,7 @@ public class FastCrystal extends Module {
         if (mc.player.getMainHandStack().getItem() != Items.END_CRYSTAL) return;
 
         long window = mc.getWindow().getHandle();
-        boolean rightClickHeld = org.lwjgl.glfw.GLFW.glfwGetMouseButton(window, org.lwjgl.glfw.GLFW.GLFW_MOUSE_BUTTON_RIGHT) == org.lwjgl.glfw.GLFW.GLFW_PRESS;
+        boolean rightClickHeld = GLFW.glfwGetMouseButton(window, GLFW.GLFW_MOUSE_BUTTON_RIGHT) == GLFW.GLFW_PRESS;
         if (!rightClickHeld) {
             lastClickTime = 0;
             return;
@@ -86,6 +86,7 @@ public class FastCrystal extends Module {
 
         long now = System.currentTimeMillis();
         if (lastClickTime == 0 || now - lastClickTime >= clickIntervalMillis) {
+            // Place crystal (right-click) and swing hand for animation
             mc.interactionManager.interactItem(mc.player, Hand.MAIN_HAND);
             mc.player.swingHand(Hand.MAIN_HAND);
 
@@ -103,7 +104,6 @@ public class FastCrystal extends Module {
             int max = Math.max(randomMinCps.get(), randomMaxCps.get());
             cps = random.nextInt(max - min + 1) + min;
         }
-        if (cps < 1) cps = 1;
-        clickIntervalMillis = 1000 / cps;
+        clickIntervalMillis = Math.max(1, 1000 / cps); // avoid zero division
     }
 }

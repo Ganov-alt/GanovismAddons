@@ -5,8 +5,9 @@ import meteordevelopment.meteorclient.settings.*;
 import meteordevelopment.meteorclient.systems.modules.Module;
 import meteordevelopment.orbit.EventHandler;
 import net.minecraft.client.gui.screen.ingame.HandledScreen;
+import net.minecraft.client.option.KeyBinding;
+import net.minecraft.client.util.InputUtil;
 import net.minecraft.entity.decoration.EndCrystalEntity;
-import net.minecraft.util.Hand;
 import net.minecraft.util.hit.EntityHitResult;
 import net.minecraft.util.hit.HitResult;
 
@@ -135,11 +136,18 @@ public class CrystalMacro extends Module {
 
         if (requiredTicks > 0 && ticksPassed >= requiredTicks) {
             if (hitsOnCrystal < 2) {
+                InputUtil.Key attackKey = null;
                 try {
-                    mc.interactionManager.attackEntity(mc.player, crystal);
-                    mc.player.swingHand(Hand.MAIN_HAND);
+                    // Use default key (InputUtil.Key) that KeyBinding methods expect
+                    attackKey = mc.options.attackKey.getDefaultKey(); // exists in 1.21.8 mappings
+                    KeyBinding.setKeyPressed(attackKey, true);
+                    KeyBinding.onKeyPressed(attackKey);
                 } catch (Exception ignored) {
                 } finally {
+                    // Ensure key is released so it doesn't get stuck
+                    try {
+                        if (attackKey != null) KeyBinding.setKeyPressed(attackKey, false);
+                    } catch (Exception ignored) {}
                     hitsOnCrystal++;
                     ticksPassed = 0;
                     requiredTicks = (mode.get() == Mode.STRICT)
