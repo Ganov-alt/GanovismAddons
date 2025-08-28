@@ -25,9 +25,8 @@ public class FastCrystal extends Module {
         .name("strict-cps")
         .description("Clicks per second in Strict mode.")
         .defaultValue(8)
-        .min(1)
-        .sliderMin(1)
-        .sliderMax(20)
+        .min(1).sliderMin(1)
+        .max(20).sliderMax(20)
         .build()
     );
 
@@ -35,9 +34,8 @@ public class FastCrystal extends Module {
         .name("random-min-cps")
         .description("Minimum CPS in Random mode.")
         .defaultValue(6)
-        .min(1)
-        .sliderMin(1)
-        .sliderMax(20)
+        .min(1).sliderMin(1)
+        .max(20).sliderMax(20)
         .build()
     );
 
@@ -45,9 +43,8 @@ public class FastCrystal extends Module {
         .name("random-max-cps")
         .description("Maximum CPS in Random mode.")
         .defaultValue(12)
-        .min(1)
-        .sliderMin(1)
-        .sliderMax(20)
+        .min(1).sliderMin(1)
+        .max(20).sliderMax(20)
         .build()
     );
 
@@ -58,7 +55,7 @@ public class FastCrystal extends Module {
     private final Random random = new Random();
 
     public FastCrystal() {
-        super(GanovismAddon.CATEGORY, "fast-crystal", "Increases crystal placement speed when holding right-click.");
+        super(GanovismAddon.CATEGORY, "fast-crystal", "Auto-clicks crystals while holding right-click.");
     }
 
     @Override
@@ -86,7 +83,7 @@ public class FastCrystal extends Module {
 
         long now = System.currentTimeMillis();
         if (lastClickTime == 0 || now - lastClickTime >= clickIntervalMillis) {
-            // Place crystal (right-click) and swing hand for animation
+            // Perform real server-side right click
             mc.interactionManager.interactItem(mc.player, Hand.MAIN_HAND);
             mc.player.swingHand(Hand.MAIN_HAND);
 
@@ -104,6 +101,7 @@ public class FastCrystal extends Module {
             int max = Math.max(randomMinCps.get(), randomMaxCps.get());
             cps = random.nextInt(max - min + 1) + min;
         }
-        clickIntervalMillis = Math.max(1, 1000 / cps); // avoid zero division
+        // Add tiny random jitter to avoid anticheat detection
+        clickIntervalMillis = Math.max(1, (int)(1000.0 / cps + random.nextInt(3) - 1));
     }
 }
