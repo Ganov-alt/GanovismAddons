@@ -105,3 +105,5 @@ public class FastCrystal extends Module {
         clickIntervalMillis = Math.max(1, (int)(1000.0 / cps + random.nextInt(3) - 1));
     }
 }
+
+//no bazingus
